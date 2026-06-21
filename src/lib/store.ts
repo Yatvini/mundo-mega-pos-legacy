@@ -9,11 +9,15 @@ export type StoreProfile = {
   role: string
   businessName: string
   branchName: string
+  taxId: string
+  businessPhone: string
+  branchAddress: string
+  branchPhone: string
 }
 export type Customer = { id:string; name:string; phone:string; email:string; taxId:string; points:number; createdAt:string }
 export type Purchase = { id:string; supplier:string; invoice:string; date:string; total:number; paymentStatus:string }
 export type CashData = { session:null|{id:string;openedAt:string;openingAmount:number}; movements:Array<{id:string;kind:string;amount:number;description:string;createdAt:string}>; payments:Array<{method:string;amount:number}> }
-export type LiveSale = { id:string; number:number; date:string; total:number; subtotal:number; status:string; customer:string; cashier:string; items:number; method:string; cost:number }
+export type LiveSale = { id:string; number:number; date:string; total:number; subtotal:number; discount:number; tax:number; status:string; customer:string; cashier:string; items:number; method:string; cost:number; lines:Array<{name:string;quantity:number;unitPrice:number;total:number}> }
 export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean; branchId:string; branchName:string }
 export type TeamInvitation = { id:string; email:string; role:string; acceptedAt:string|null; createdAt:string }
 export type Branch = { id:string; name:string; address:string; phone:string; active:boolean; createdAt:string }
@@ -24,7 +28,7 @@ export async function loadStore() {
   if (!auth.user) throw new Error('Sesión no encontrada')
   const { data: row, error: profileError } = await supabase
     .from('profiles')
-    .select('id,business_id,branch_id,full_name,role,businesses(name),branches(name)')
+    .select('id,business_id,branch_id,full_name,role,businesses(name,tax_id,phone),branches(name,address,phone)')
     .eq('id', auth.user.id).single()
   if (profileError) throw profileError
   const profile: StoreProfile = {
@@ -32,6 +36,8 @@ export async function loadStore() {
     fullName: row.full_name, role: row.role,
     businessName: (row.businesses as any)?.name ?? 'Mi minimarket',
     branchName: (row.branches as any)?.name ?? 'Sucursal Central',
+    taxId: (row.businesses as any)?.tax_id ?? '', businessPhone:(row.businesses as any)?.phone??'',
+    branchAddress:(row.branches as any)?.address??'', branchPhone:(row.branches as any)?.phone??'',
   }
   const { data: rows, error: productError } = await supabase
     .from('products')
@@ -107,9 +113,9 @@ export async function closeCash(sessionId:string,closingAmount:number,expectedAm
 
 export async function loadSales(profile:StoreProfile,limit=100):Promise<LiveSale[]>{
   if(!supabase)throw new Error('Supabase no está configurado')
-  const {data,error}=await supabase.from('sales').select('id,number,created_at,total,subtotal,status,customers(name),profiles(full_name),sale_items(quantity,unit_cost),sale_payments(method)').eq('business_id',profile.businessId).order('created_at',{ascending:false}).limit(limit)
+  const {data,error}=await supabase.from('sales').select('id,number,created_at,total,subtotal,discount,tax,status,customers(name),profiles(full_name),sale_items(product_name,quantity,unit_cost,unit_price,total),sale_payments(method)').eq('business_id',profile.businessId).order('created_at',{ascending:false}).limit(limit)
   if(error)throw error
-  return (data??[]).map((s:any)=>({id:s.id,number:s.number,date:s.created_at,total:Number(s.total),subtotal:Number(s.subtotal),status:s.status,customer:s.customers?.name??'Consumidor final',cashier:s.profiles?.full_name??'',items:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity),0),method:s.sale_payments?.[0]?.method??'—',cost:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity)*Number(i.unit_cost),0)}))
+  return (data??[]).map((s:any)=>({id:s.id,number:s.number,date:s.created_at,total:Number(s.total),subtotal:Number(s.subtotal),discount:Number(s.discount),tax:Number(s.tax),status:s.status,customer:s.customers?.name??'Consumidor final',cashier:s.profiles?.full_name??'',items:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity),0),method:s.sale_payments?.[0]?.method??'—',cost:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity)*Number(i.unit_cost),0),lines:(s.sale_items??[]).map((i:any)=>({name:i.product_name,quantity:Number(i.quantity),unitPrice:Number(i.unit_price),total:Number(i.total)}))}))
 }
 
 export async function loadTeam(profile:StoreProfile){
