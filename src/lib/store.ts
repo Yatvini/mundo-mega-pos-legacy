@@ -14,8 +14,9 @@ export type Customer = { id:string; name:string; phone:string; email:string; tax
 export type Purchase = { id:string; supplier:string; invoice:string; date:string; total:number; paymentStatus:string }
 export type CashData = { session:null|{id:string;openedAt:string;openingAmount:number}; movements:Array<{id:string;kind:string;amount:number;description:string;createdAt:string}>; payments:Array<{method:string;amount:number}> }
 export type LiveSale = { id:string; number:number; date:string; total:number; subtotal:number; status:string; customer:string; cashier:string; items:number; method:string; cost:number }
-export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean }
+export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean; branchId:string; branchName:string }
 export type TeamInvitation = { id:string; email:string; role:string; acceptedAt:string|null; createdAt:string }
+export type Branch = { id:string; name:string; address:string; phone:string; active:boolean; createdAt:string }
 
 export async function loadStore() {
   if (!supabase) throw new Error('Supabase no está configurado')
@@ -54,7 +55,9 @@ export async function createProduct(profile: StoreProfile, input: {name:string;s
   }
   const {data: product,error}=await supabase.from('products').insert({business_id:profile.businessId,category_id:categoryId,name:input.name,sku:input.sku,barcode:input.barcode||null,unit:input.unit,cost:input.cost,price:input.price,min_stock:input.minStock}).select('id').single()
   if(error)throw error
-  const {error:inventoryError}=await supabase.from('inventory').insert({branch_id:profile.branchId,product_id:product.id,stock:input.stock})
+  const {data:branchRows,error:branchError}=await supabase.from('branches').select('id').eq('business_id',profile.businessId).eq('active',true)
+  if(branchError)throw branchError
+  const {error:inventoryError}=await supabase.from('inventory').insert((branchRows??[]).map(b=>({branch_id:b.id,product_id:product.id,stock:b.id===profile.branchId?input.stock:0})))
   if(inventoryError)throw inventoryError
   return product.id
 }
@@ -112,12 +115,18 @@ export async function loadSales(profile:StoreProfile,limit=100):Promise<LiveSale
 export async function loadTeam(profile:StoreProfile){
   if(!supabase)throw new Error('Supabase no está configurado')
   const [{data:members,error:me},{data:invites,error:ie}]=await Promise.all([
-    supabase.from('profiles').select('id,full_name,role,active').eq('business_id',profile.businessId).order('full_name'),
+    supabase.from('profiles').select('id,full_name,role,active,branch_id,branches(name)').eq('business_id',profile.businessId).order('full_name'),
     supabase.from('team_invitations').select('id,email,role,accepted_at,created_at').eq('business_id',profile.businessId).order('created_at',{ascending:false})
   ])
   if(me)throw me;if(ie)throw ie
-  return {members:(members??[]).map(m=>({id:m.id,fullName:m.full_name,role:m.role,active:m.active})) as TeamMember[],invites:(invites??[]).map(i=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
+  return {members:(members??[]).map((m:any)=>({id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??''})) as TeamMember[],invites:(invites??[]).map(i=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
 }
 export async function inviteTeamMember(profile:StoreProfile,email:string,role:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('team_invitations').upsert({business_id:profile.businessId,branch_id:profile.branchId,email:email.toLowerCase().trim(),role,invited_by:profile.id,accepted_at:null},{onConflict:'business_id,email'});if(error)throw error}
 export async function updateTeamMember(memberId:string,changes:{role?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('profiles').update(changes).eq('id',memberId);if(error)throw error}
 export async function deleteInvitation(id:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('team_invitations').delete().eq('id',id);if(error)throw error}
+
+export async function loadBranches(profile:StoreProfile):Promise<Branch[]>{if(!supabase)throw new Error('Supabase no está configurado');const {data,error}=await supabase.from('branches').select('id,name,address,phone,active,created_at').eq('business_id',profile.businessId).order('created_at');if(error)throw error;return (data??[]).map(b=>({id:b.id,name:b.name,address:b.address??'',phone:b.phone??'',active:b.active,createdAt:b.created_at}))}
+export async function createBranch(input:{name:string;address:string;phone:string}){if(!supabase)throw new Error('Supabase no está configurado');const {data,error}=await supabase.rpc('create_branch',{p_name:input.name,p_address:input.address,p_phone:input.phone});if(error)throw error;return data as string}
+export async function updateBranch(id:string,changes:{name?:string;address?:string;phone?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('branches').update(changes).eq('id',id);if(error)throw error}
+export async function switchBranch(id:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('switch_branch',{p_branch_id:id});if(error)throw error}
+export async function assignMemberBranch(memberId:string,branchId:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('assign_member_branch',{p_member_id:memberId,p_branch_id:branchId});if(error)throw error}
