@@ -16,8 +16,8 @@ export type StoreProfile = {
 }
 export type Customer = { id:string; name:string; phone:string; email:string; taxId:string; points:number; createdAt:string }
 export type Purchase = { id:string; supplier:string; invoice:string; date:string; total:number; paymentStatus:string }
-export type CashData = { session:null|{id:string;openedAt:string;openingAmount:number}; movements:Array<{id:string;kind:string;amount:number;description:string;createdAt:string}>; payments:Array<{method:string;amount:number}> }
-export type LiveSale = { id:string; number:number; date:string; total:number; subtotal:number; discount:number; tax:number; status:string; customer:string; cashier:string; items:number; method:string; cost:number; lines:Array<{name:string;quantity:number;unitPrice:number;total:number}> }
+export type CashData = { session:null|{id:string;openedAt:string;openingAmount:number}; movements:Array<{id:string;kind:string;amount:number;description:string;createdAt:string}>; payments:Array<{method:string;amount:number}>; refunds?:Array<{method:string;amount:number}> }
+export type LiveSale = { id:string; number:number; date:string; total:number; subtotal:number; discount:number; tax:number; refunded:number; status:string; customer:string; cashier:string; items:number; method:string; cost:number; lines:Array<{id:string;name:string;quantity:number;unitPrice:number;total:number}> }
 export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean; branchId:string; branchName:string }
 export type TeamInvitation = { id:string; email:string; role:string; acceptedAt:string|null; createdAt:string }
 export type Branch = { id:string; name:string; address:string; phone:string; active:boolean; createdAt:string }
@@ -98,13 +98,15 @@ export async function loadCash(profile: StoreProfile): Promise<CashData> {
   if (!supabase) throw new Error('Supabase no está configurado')
   const {data:session,error}=await supabase.from('cash_sessions').select('id,opened_at,opening_amount').eq('branch_id',profile.branchId).is('closed_at',null).order('opened_at',{ascending:false}).limit(1).maybeSingle()
   if(error)throw error
-  if(!session)return {session:null,movements:[],payments:[]}
-  const [{data:movements,error:me},{data:payments,error:pe}]=await Promise.all([
+  if(!session)return {session:null,movements:[],payments:[],refunds:[]}
+  const [{data:movements,error:me},{data:payments,error:pe},{data:returns,error:re}]=await Promise.all([
     supabase.from('cash_movements').select('id,kind,amount,description,created_at').eq('session_id',session.id).order('created_at',{ascending:false}),
-    supabase.from('sale_payments').select('method,amount,sales!inner(session_id,status)').eq('sales.session_id',session.id).eq('sales.status','completed')
+    supabase.from('sale_payments').select('method,amount,sales!inner(session_id,status)').eq('sales.session_id',session.id).eq('sales.status','completed'),
+    supabase.from('sale_returns').select('amount,sales!inner(session_id,sale_payments(method))').eq('sales.session_id',session.id)
   ])
-  if(me)throw me;if(pe)throw pe
-  return {session:{id:session.id,openedAt:session.opened_at,openingAmount:Number(session.opening_amount)},movements:(movements??[]).map(m=>({id:m.id,kind:m.kind,amount:Number(m.amount),description:m.description,createdAt:m.created_at})),payments:(payments??[]).map(p=>({method:p.method,amount:Number(p.amount)}))}
+  if(me)throw me;if(pe)throw pe;if(re)throw re
+  const refundRows=(returns??[]).map((r:any)=>({method:r.sales?.sale_payments?.[0]?.method??'cash',amount:Number(r.amount)}))
+  return {session:{id:session.id,openedAt:session.opened_at,openingAmount:Number(session.opening_amount)},movements:(movements??[]).map(m=>({id:m.id,kind:m.kind,amount:Number(m.amount),description:m.description,createdAt:m.created_at})),payments:[...(payments??[]).map(p=>({method:p.method,amount:Number(p.amount)})),...refundRows.map(r=>({method:r.method,amount:-r.amount}))],refunds:refundRows}
 }
 
 export async function openCash(profile:StoreProfile,amount:number){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('cash_sessions').insert({branch_id:profile.branchId,user_id:profile.id,opening_amount:amount});if(error)throw error}
@@ -113,10 +115,12 @@ export async function closeCash(sessionId:string,closingAmount:number,expectedAm
 
 export async function loadSales(profile:StoreProfile,limit=100):Promise<LiveSale[]>{
   if(!supabase)throw new Error('Supabase no está configurado')
-  const {data,error}=await supabase.from('sales').select('id,number,created_at,total,subtotal,discount,tax,status,customers(name),profiles(full_name),sale_items(product_name,quantity,unit_cost,unit_price,total),sale_payments(method)').eq('business_id',profile.businessId).order('created_at',{ascending:false}).limit(limit)
+  const {data,error}=await supabase.from('sales').select('id,number,created_at,total,subtotal,discount,tax,status,customers(name),profiles(full_name),sale_items(id,product_name,quantity,unit_cost,unit_price,total),sale_payments(method),sale_returns(amount)').eq('business_id',profile.businessId).order('created_at',{ascending:false}).limit(limit)
   if(error)throw error
-  return (data??[]).map((s:any)=>({id:s.id,number:s.number,date:s.created_at,total:Number(s.total),subtotal:Number(s.subtotal),discount:Number(s.discount),tax:Number(s.tax),status:s.status,customer:s.customers?.name??'Consumidor final',cashier:s.profiles?.full_name??'',items:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity),0),method:s.sale_payments?.[0]?.method??'—',cost:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity)*Number(i.unit_cost),0),lines:(s.sale_items??[]).map((i:any)=>({name:i.product_name,quantity:Number(i.quantity),unitPrice:Number(i.unit_price),total:Number(i.total)}))}))
+  return (data??[]).map((s:any)=>{const refunded=(s.sale_returns??[]).reduce((n:number,r:any)=>n+Number(r.amount),0);return {id:s.id,number:s.number,date:s.created_at,total:Number(s.total)-refunded,subtotal:Number(s.subtotal),discount:Number(s.discount),tax:Number(s.tax),refunded,status:s.status,customer:s.customers?.name??'Consumidor final',cashier:s.profiles?.full_name??'',items:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity),0),method:s.sale_payments?.[0]?.method??'—',cost:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity)*Number(i.unit_cost),0),lines:(s.sale_items??[]).map((i:any)=>({id:i.id,name:i.product_name,quantity:Number(i.quantity),unitPrice:Number(i.unit_price),total:Number(i.total)}))}})
 }
+export async function cancelSale(saleId:string,reason:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('cancel_sale',{p_sale_id:saleId,p_reason:reason});if(error)throw error}
+export async function returnSale(saleId:string,reason:string,items:Array<{sale_item_id:string;quantity:number}>){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('return_sale',{p_sale_id:saleId,p_reason:reason,p_items:items});if(error)throw error}
 
 export async function loadTeam(profile:StoreProfile){
   if(!supabase)throw new Error('Supabase no está configurado')
