@@ -22,7 +22,7 @@ begin
   -- La parte aleatoria garantiza unicidad incluso cuando el nombre lleva tildes.
   v_slug:=trim(both '-' from regexp_replace(lower(trim(p_name)), '[^a-z0-9]+', '-', 'g'));
   if v_slug='' then v_slug:='empresa'; end if;
-  v_slug:=v_slug||'-'||substr(replace(uuid_generate_v4()::text,'-',''),1,6);
+  v_slug:=v_slug||'-'||substr(replace(gen_random_uuid()::text,'-',''),1,6);
 
   v_modules:=case when p_industry='restaurant' then
     '{"pos":true,"inventory":true,"purchases":true,"customers":true,"cash":true,"reports":true,"branches":true,"tables":true,"recipes":true}'::jsonb
@@ -41,4 +41,3 @@ begin
 end $$;
 
 grant execute on function public.platform_create_business(text,text,text,text,text,text,text,text,text) to authenticated;
-

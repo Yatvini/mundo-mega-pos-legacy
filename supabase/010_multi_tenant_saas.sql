@@ -143,7 +143,7 @@ begin
   if exists(select 1 from business_admin_invitations where lower(email)=lower(p_admin_email) and accepted_at is null) then
     raise exception 'Ya existe una invitación pendiente para ese correo';
   end if;
-  v_slug:=trim(both '-' from regexp_replace(lower(unaccent(p_name)), '[^a-z0-9]+', '-', 'g'))||'-'||substr(replace(uuid_generate_v4()::text,'-',''),1,6);
+  v_slug:=trim(both '-' from regexp_replace(lower(p_name), '[^a-z0-9]+', '-', 'g'))||'-'||substr(replace(gen_random_uuid()::text,'-',''),1,6);
   v_modules:=case when p_industry='restaurant' then
     '{"pos":true,"inventory":true,"purchases":true,"customers":true,"cash":true,"reports":true,"branches":true,"tables":true,"recipes":true}'::jsonb
   else '{"pos":true,"inventory":true,"purchases":true,"customers":true,"cash":true,"reports":true,"branches":true,"returns":true}'::jsonb end;
