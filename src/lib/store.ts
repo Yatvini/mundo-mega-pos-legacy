@@ -21,6 +21,7 @@ export type LiveSale = { id:string; number:number; date:string; total:number; su
 export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean; branchId:string; branchName:string }
 export type TeamInvitation = { id:string; email:string; role:string; acceptedAt:string|null; createdAt:string }
 export type Branch = { id:string; name:string; address:string; phone:string; active:boolean; createdAt:string }
+export type BranchReport = { branchId:string;branchName:string;active:boolean;grossSales:number;refunds:number;netSales:number;transactions:number;averageTicket:number;costOfSales:number;grossProfit:number;margin:number;inventoryValue:number;lowStock:number;outOfStock:number }
 
 export async function loadStore() {
   if (!supabase) throw new Error('Supabase no está configurado')
@@ -115,7 +116,7 @@ export async function closeCash(sessionId:string,closingAmount:number,expectedAm
 
 export async function loadSales(profile:StoreProfile,limit=100):Promise<LiveSale[]>{
   if(!supabase)throw new Error('Supabase no está configurado')
-  const {data,error}=await supabase.from('sales').select('id,number,created_at,total,subtotal,discount,tax,status,customers(name),profiles(full_name),sale_items(id,product_name,quantity,unit_cost,unit_price,total),sale_payments(method),sale_returns(amount)').eq('business_id',profile.businessId).order('created_at',{ascending:false}).limit(limit)
+  const {data,error}=await supabase.from('sales').select('id,number,created_at,total,subtotal,discount,tax,status,customers(name),profiles(full_name),sale_items(id,product_name,quantity,unit_cost,unit_price,total),sale_payments(method),sale_returns(amount)').eq('business_id',profile.businessId).eq('branch_id',profile.branchId).order('created_at',{ascending:false}).limit(limit)
   if(error)throw error
   return (data??[]).map((s:any)=>{const refunded=(s.sale_returns??[]).reduce((n:number,r:any)=>n+Number(r.amount),0);return {id:s.id,number:s.number,date:s.created_at,total:Number(s.total)-refunded,subtotal:Number(s.subtotal),discount:Number(s.discount),tax:Number(s.tax),refunded,status:s.status,customer:s.customers?.name??'Consumidor final',cashier:s.profiles?.full_name??'',items:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity),0),method:s.sale_payments?.[0]?.method??'—',cost:(s.sale_items??[]).reduce((n:number,i:any)=>n+Number(i.quantity)*Number(i.unit_cost),0),lines:(s.sale_items??[]).map((i:any)=>({id:i.id,name:i.product_name,quantity:Number(i.quantity),unitPrice:Number(i.unit_price),total:Number(i.total)}))}})
 }
@@ -140,3 +141,4 @@ export async function createBranch(input:{name:string;address:string;phone:strin
 export async function updateBranch(id:string,changes:{name?:string;address?:string;phone?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('branches').update(changes).eq('id',id);if(error)throw error}
 export async function switchBranch(id:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('switch_branch',{p_branch_id:id});if(error)throw error}
 export async function assignMemberBranch(memberId:string,branchId:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('assign_member_branch',{p_member_id:memberId,p_branch_id:branchId});if(error)throw error}
+export async function loadBranchControl(from:Date,to:Date):Promise<BranchReport[]>{if(!supabase)throw new Error('Supabase no está configurado');const {data,error}=await supabase.rpc('branch_control_report',{p_from:from.toISOString(),p_to:to.toISOString()});if(error)throw error;return (data??[]).map((r:any)=>({branchId:r.branch_id,branchName:r.branch_name,active:r.active,grossSales:Number(r.gross_sales),refunds:Number(r.refunds),netSales:Number(r.net_sales),transactions:Number(r.transactions),averageTicket:Number(r.average_ticket),costOfSales:Number(r.cost_of_sales),grossProfit:Number(r.gross_profit),margin:Number(r.margin),inventoryValue:Number(r.inventory_value),lowStock:Number(r.low_stock),outOfStock:Number(r.out_of_stock)}))}
