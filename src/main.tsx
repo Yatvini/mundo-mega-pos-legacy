@@ -8,6 +8,7 @@ import './returns.css'
 import './control-center.css'
 import './control-hub.css'
 import './corporate-sidebar.css'
+import './branding.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode><App /></React.StrictMode>

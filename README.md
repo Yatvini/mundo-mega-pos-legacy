@@ -1,4 +1,4 @@
-# Mercadito POS
+# MUNDO MEGA · Grupo Multimarkets S.A.
 
 Sistema web de punto de venta para minimarket, con panel de indicadores, venta rápida, inventario, compras, clientes, caja y reportes.
 
