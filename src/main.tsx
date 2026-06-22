@@ -9,6 +9,7 @@ import './control-center.css'
 import './control-hub.css'
 import './corporate-sidebar.css'
 import './branding.css'
+import './platform.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode><App /></React.StrictMode>
