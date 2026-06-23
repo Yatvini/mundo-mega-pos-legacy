@@ -17,6 +17,20 @@ La interfaz incluye datos de demostración y funciona sin credenciales. Para per
 3. Coloca `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` en `.env`.
 4. Crea el primer negocio, sucursal y perfil administrativo desde el SQL Editor o un flujo de onboarding.
 
+## Correos de invitacion
+
+El sistema envia invitaciones automaticas para nuevas empresas y usuarios usando Supabase Auth desde una API segura en Vercel.
+
+En Vercel agrega estas variables:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+La `SUPABASE_SERVICE_ROLE_KEY` se encuentra en Supabase: Project Settings -> API -> service_role key. Debe quedar solo en Vercel como variable privada; no debe pegarse en el frontend ni subirse al repositorio.
+
+Cuando el invitado abre el correo, el sistema le pedira crear su contrasena y luego entrara a su empresa o sucursal asignada.
+
 ## Módulos
 
 - Resumen de ventas, transacciones, ticket promedio y alertas.
