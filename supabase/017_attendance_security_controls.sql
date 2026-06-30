@@ -66,8 +66,6 @@ returns integer language sql immutable as $$
   )::integer;
 $$;
 
-drop function if exists public.attendance_ensure_kiosk(uuid);
-
 create or replace function public.attendance_ensure_kiosk(p_branch_id uuid default null)
 returns table(token text, expires_at timestamptz)
 language plpgsql security definer set search_path=public as $$
