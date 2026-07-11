@@ -34,6 +34,14 @@ export type AttendanceCategory = { id:string;name:string;kind:'start_shift'|'lun
 export type AttendanceEvent = { id:string;employeeId:string;employeeName:string;categoryId:string;categoryName:string;categoryKind:string;branchName:string;markedAt:string;note:string }
 export type AttendanceKioskData = { business:{id:string;name:string};branch:{id:string;name:string}|null;employees:Array<{id:string;fullName:string;position:string}>;categories:Array<{id:string;name:string;kind:string}> }
 
+type BranchIdRow = { id:string }
+type CustomerRow = { id:string;name:string;phone:string|null;email:string|null;tax_id:string|null;points:number;created_at:string }
+type CashMovementRow = { id:string;kind:string;amount:number|string;description:string;created_at:string }
+type SalePaymentRow = { method:string;amount:number|string }
+type RefundRow = { method:string;amount:number }
+type TeamInvitationRow = { id:string;email:string;role:string;accepted_at:string|null;created_at:string }
+type BranchRow = { id:string;name:string;address:string|null;phone:string|null;active:boolean;created_at:string }
+
 async function sendInvitationEmail(input:{kind:'platform-business-admin'|'team-member';email:string;fullName?:string;businessId?:string}):Promise<InvitationEmailResult>{
   if(!supabase)throw new Error('Supabase no estÃ¡ configurado')
   const {data:{session}}=await supabase.auth.getSession()
@@ -92,7 +100,7 @@ export async function createProduct(profile: StoreProfile, input: {name:string;s
   if(error)throw error
   const {data:branchRows,error:branchError}=await supabase.from('branches').select('id').eq('business_id',profile.businessId).eq('active',true)
   if(branchError)throw branchError
-  const {error:inventoryError}=await supabase.from('inventory').insert((branchRows??[]).map(b=>({branch_id:b.id,product_id:product.id,stock:b.id===profile.branchId?input.stock:0})))
+  const {error:inventoryError}=await supabase.from('inventory').insert((branchRows??[]).map((b:BranchIdRow)=>({branch_id:b.id,product_id:product.id,stock:b.id===profile.branchId?input.stock:0})))
   if(inventoryError)throw inventoryError
   return product.id
 }
@@ -101,7 +109,7 @@ export async function loadCustomers(profile: StoreProfile) {
   if (!supabase) throw new Error('Supabase no está configurado')
   const {data,error}=await supabase.from('customers').select('id,name,phone,email,tax_id,points,created_at').eq('business_id',profile.businessId).eq('active',true).order('name')
   if(error)throw error
-  return (data??[]).map(c=>({id:c.id,name:c.name,phone:c.phone??'',email:c.email??'',taxId:c.tax_id??'',points:c.points,createdAt:c.created_at})) as Customer[]
+  return (data??[]).map((c:CustomerRow)=>({id:c.id,name:c.name,phone:c.phone??'',email:c.email??'',taxId:c.tax_id??'',points:c.points,createdAt:c.created_at})) as Customer[]
 }
 
 export async function createCustomer(profile: StoreProfile, input: {name:string;phone:string;email:string;taxId:string}) {
@@ -134,8 +142,8 @@ export async function loadCash(profile: StoreProfile): Promise<CashData> {
     supabase.from('sale_returns').select('amount,sales!inner(session_id,sale_payments(method))').eq('sales.session_id',session.id)
   ])
   if(me)throw me;if(pe)throw pe;if(re)throw re
-  const refundRows=(returns??[]).map((r:any)=>({method:r.sales?.sale_payments?.[0]?.method??'cash',amount:Number(r.amount)}))
-  return {session:{id:session.id,openedAt:session.opened_at,openingAmount:Number(session.opening_amount)},movements:(movements??[]).map(m=>({id:m.id,kind:m.kind,amount:Number(m.amount),description:m.description,createdAt:m.created_at})),payments:[...(payments??[]).map(p=>({method:p.method,amount:Number(p.amount)})),...refundRows.map(r=>({method:r.method,amount:-r.amount}))],refunds:refundRows}
+  const refundRows:RefundRow[]=(returns??[]).map((r:any)=>({method:r.sales?.sale_payments?.[0]?.method??'cash',amount:Number(r.amount)}))
+  return {session:{id:session.id,openedAt:session.opened_at,openingAmount:Number(session.opening_amount)},movements:(movements??[]).map((m:CashMovementRow)=>({id:m.id,kind:m.kind,amount:Number(m.amount),description:m.description,createdAt:m.created_at})),payments:[...(payments??[]).map((p:SalePaymentRow)=>({method:p.method,amount:Number(p.amount)})),...refundRows.map((r:RefundRow)=>({method:r.method,amount:-r.amount}))],refunds:refundRows}
 }
 
 export async function openCash(profile:StoreProfile,amount:number){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('cash_sessions').insert({branch_id:profile.branchId,user_id:profile.id,opening_amount:amount});if(error)throw error}
@@ -158,13 +166,13 @@ export async function loadTeam(profile:StoreProfile){
     supabase.from('team_invitations').select('id,email,role,accepted_at,created_at').eq('business_id',profile.businessId).order('created_at',{ascending:false})
   ])
   if(me)throw me;if(ie)throw ie
-  return {members:(members??[]).map((m:any)=>({id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??''})) as TeamMember[],invites:(invites??[]).map(i=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
+  return {members:(members??[]).map((m:any)=>({id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??''})) as TeamMember[],invites:(invites??[]).map((i:TeamInvitationRow)=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
 }
 export async function inviteTeamMember(profile:StoreProfile,email:string,role:string){if(!supabase)throw new Error('Supabase no esta configurado');const {error}=await supabase.from('team_invitations').upsert({business_id:profile.businessId,branch_id:profile.branchId,email:email.toLowerCase().trim(),role,invited_by:profile.id,accepted_at:null},{onConflict:'business_id,email'});if(error)throw error;return sendInvitationEmail({kind:'team-member',email,fullName:''})}
 export async function updateTeamMember(memberId:string,changes:{role?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('profiles').update(changes).eq('id',memberId);if(error)throw error}
 export async function deleteInvitation(id:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('team_invitations').delete().eq('id',id);if(error)throw error}
 
-export async function loadBranches(profile:StoreProfile):Promise<Branch[]>{if(!supabase)throw new Error('Supabase no está configurado');const {data,error}=await supabase.from('branches').select('id,name,address,phone,active,created_at').eq('business_id',profile.businessId).order('created_at');if(error)throw error;return (data??[]).map(b=>({id:b.id,name:b.name,address:b.address??'',phone:b.phone??'',active:b.active,createdAt:b.created_at}))}
+export async function loadBranches(profile:StoreProfile):Promise<Branch[]>{if(!supabase)throw new Error('Supabase no está configurado');const {data,error}=await supabase.from('branches').select('id,name,address,phone,active,created_at').eq('business_id',profile.businessId).order('created_at');if(error)throw error;return (data??[]).map((b:BranchRow)=>({id:b.id,name:b.name,address:b.address??'',phone:b.phone??'',active:b.active,createdAt:b.created_at}))}
 export async function createBranch(input:{name:string;address:string;phone:string}){if(!supabase)throw new Error('Supabase no está configurado');const {data,error}=await supabase.rpc('create_branch',{p_name:input.name,p_address:input.address,p_phone:input.phone});if(error)throw error;return data as string}
 export async function updateBranch(id:string,changes:{name?:string;address?:string;phone?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('branches').update(changes).eq('id',id);if(error)throw error}
 export async function switchBranch(id:string){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.rpc('switch_branch',{p_branch_id:id});if(error)throw error}
