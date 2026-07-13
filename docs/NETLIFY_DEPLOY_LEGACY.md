@@ -12,14 +12,23 @@ Required public frontend variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Forbidden variables:
+Required private server-side variables:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
+
+Optional private server-side variables:
+
+- `SUPABASE_URL`
+
+The Netlify Function can use `SUPABASE_URL` or fall back to `VITE_SUPABASE_URL` for the public project URL.
+
+Forbidden variables:
+
 - `DATABASE_PASSWORD`
 - `SUPABASE_ACCESS_TOKEN`
 - `JWT_SECRET`
 
-Do not configure server-only secrets in the Netlify frontend environment.
+`SUPABASE_SERVICE_ROLE_KEY` must never use the `VITE_` prefix. Do not commit it to Git, paste it in chats, or expose it in browser code. Configure it only in Netlify Environment Variables for server-side functions.
 
 ## Netlify setup
 
@@ -31,6 +40,7 @@ Do not configure server-only secrets in the Netlify frontend environment.
 6. Add the required environment variables:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
 7. Start the deploy.
 
 ## Post-deploy checks
