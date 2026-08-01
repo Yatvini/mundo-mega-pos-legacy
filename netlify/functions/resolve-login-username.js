@@ -45,15 +45,40 @@ export const handler = async (event) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const { data, error } = await admin
+  const { data: account, error: accountError } = await admin
     .from('employee_accounts')
-    .select('auth_email,profiles!inner(active,businesses!inner(status))')
+    .select('username,auth_email,user_id,business_id')
     .eq('username', username)
-    .eq('profiles.active', true)
-    .eq('profiles.businesses.status', 'active')
     .maybeSingle()
 
-  if (error || !data?.auth_email) return json(400, { error: 'Usuario o contrasena incorrectos.' })
+  if (accountError || !account?.auth_email || !account?.user_id || !account?.business_id) {
+    return json(400, { error: 'Usuario o contrasena incorrectos.' })
+  }
 
-  return json(200, { ok: true, auth_email: data.auth_email })
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('id,business_id,active')
+    .eq('id', account.user_id)
+    .maybeSingle()
+
+  if (
+    profileError ||
+    !profile ||
+    !profile.active ||
+    profile.business_id !== account.business_id
+  ) {
+    return json(400, { error: 'Usuario o contrasena incorrectos.' })
+  }
+
+  const { data: business, error: businessError } = await admin
+    .from('businesses')
+    .select('id,status')
+    .eq('id', account.business_id)
+    .maybeSingle()
+
+  if (businessError || !business || business.status !== 'active') {
+    return json(400, { error: 'Usuario o contrasena incorrectos.' })
+  }
+
+  return json(200, { ok: true, auth_email: account.auth_email })
 }
