@@ -7,6 +7,8 @@ export type StoreProfile = {
   branchId: string
   fullName: string
   role: string
+  active: boolean
+  forcePasswordChange: boolean
   businessName: string
   branchName: string
   taxId: string
@@ -18,8 +20,9 @@ export type Customer = { id:string; name:string; phone:string; email:string; tax
 export type Purchase = { id:string; supplier:string; invoice:string; date:string; total:number; paymentStatus:string }
 export type CashData = { session:null|{id:string;openedAt:string;openingAmount:number}; movements:Array<{id:string;kind:string;amount:number;description:string;createdAt:string}>; payments:Array<{method:string;amount:number}>; refunds?:Array<{method:string;amount:number}> }
 export type LiveSale = { id:string; number:number; date:string; total:number; subtotal:number; discount:number; tax:number; refunded:number; status:string; customer:string; cashier:string; items:number; method:string; cost:number; lines:Array<{id:string;name:string;quantity:number;unitPrice:number;total:number}> }
-export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean; branchId:string; branchName:string }
+export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'|'cashier'|'warehouse'; active:boolean; branchId:string; branchName:string; username?:string; employeeEmail?:string; phone?:string; avatarUrl?:string; forcePasswordChange?:boolean; permissionTemplate?:string }
 export type TeamInvitation = { id:string; email:string; role:string; acceptedAt:string|null; createdAt:string }
+export type CreateEmployeeUserInput = { firstName:string;lastName:string;employeeEmail:string;phone:string;avatarUrl:string;username:string;password:string;branchId:string;role:'admin'|'supervisor'|'cashier'|'warehouse';active:boolean;forcePasswordChange:boolean;darkMode:boolean;permissionTemplate?:string;permissions?:Record<string,boolean> }
 export type Branch = { id:string; name:string; address:string; phone:string; active:boolean; createdAt:string }
 export type BranchReport = { branchId:string;branchName:string;active:boolean;grossSales:number;refunds:number;netSales:number;transactions:number;averageTicket:number;costOfSales:number;grossProfit:number;margin:number;inventoryValue:number;lowStock:number;outOfStock:number }
 export type BranchIncomeStatement = { branchId:string;branchName:string;periodFrom:string;periodTo:string;grossSales:number;returnsTotal:number;cancellationsTotal:number;netSales:number;costOfSales:number;grossProfit:number;operatingExpenses:number;payrollExpenses:number;cashNegativeDifferences:number;cashPositiveDifferences:number;operatingProfit:number;grossMargin:number;operatingMargin:number;averageTicket:number;transactions:number;productsSold:number;usesCostFallback:boolean;notes:string[] }
@@ -42,6 +45,7 @@ type CashMovementRow = { id:string;kind:string;amount:number|string;description:
 type SalePaymentRow = { method:string;amount:number|string }
 type RefundRow = { method:string;amount:number }
 type TeamInvitationRow = { id:string;email:string;role:string;accepted_at:string|null;created_at:string }
+type EmployeeAccountRow = { username:string;employee_email:string;phone:string|null;avatar_url:string|null;force_password_change:boolean;permission_template:string|null }
 type BranchRow = { id:string;name:string;address:string|null;phone:string|null;active:boolean;created_at:string }
 type BranchIncomeStatementRow = { branch_id:string;branch_name:string;period_from:string;period_to:string;gross_sales:number|string;returns_total:number|string;cancellations_total:number|string;net_sales:number|string;cost_of_sales:number|string;gross_profit:number|string;operating_expenses:number|string;payroll_expenses:number|string;cash_negative_differences:number|string;cash_positive_differences:number|string;operating_profit:number|string;gross_margin:number|string;operating_margin:number|string;average_ticket:number|string;transactions:number|string;products_sold:number|string;uses_cost_fallback:boolean;notes:string[]|null }
 type CorporateCashMovementRow = { movement_id:string;business_id:string;branch_id:string;branch_name:string;cash_session_id:string;session_opened_at:string;session_closed_at:string|null;is_session_open:boolean;movement_created_at:string;created_by:string;created_by_name:string;kind:'income'|'expense';amount:number|string;description:string;status:'active'|'voided';editable:boolean;voidable:boolean;voided_at:string|null;void_reason:string|null;updated_at:string|null;correction_reason:string|null;last_audit_at:string|null }
@@ -55,6 +59,20 @@ async function sendInvitationEmail(input:{kind:'platform-business-admin'|'team-m
   if(!response.ok)throw new Error(payload.error||'No fue posible enviar el correo de invitaci�n')
   return payload as InvitationEmailResult
 }
+
+async function postServerFunction<T>(path:string,body:unknown,auth=false):Promise<T>{
+  if(auth&&!supabase)throw new Error('Supabase no esta configurado')
+  const headers:Record<string,string>={'Content-Type':'application/json'}
+  if(auth){const {data:{session}}=await supabase!.auth.getSession();if(!session)throw new Error('Sesion no encontrada');headers.Authorization=`Bearer ${session.access_token}`}
+  const response=await fetch(path,{method:'POST',headers,body:JSON.stringify(body)})
+  const payload=await response.json().catch(()=>({}))
+  if(!response.ok)throw new Error(payload.error||'No fue posible completar la solicitud')
+  return payload as T
+}
+
+export async function createEmployeeUser(input:CreateEmployeeUserInput){return postServerFunction<{ok:boolean;user_id:string;username:string;full_name:string;role:string;active:boolean}>('/api/create-employee-user',input,true)}
+export async function resolveLoginUsername(username:string){const result=await postServerFunction<{ok:boolean;auth_email:string}>('/api/resolve-login-username',{username});return result.auth_email}
+export async function completeForcePasswordChange(){return postServerFunction<{ok:boolean}>('/api/complete-force-password-change',{},true)}
 
 async function rollbackFailedBusinessInvitation(businessId:string,email:string){
   if(!supabase)throw new Error('Supabase no esta configurado')
@@ -75,12 +93,13 @@ export async function loadStore() {
   if (!auth.user) throw new Error('Sesión no encontrada')
   const { data: row, error: profileError } = await supabase
     .from('profiles')
-    .select('id,business_id,branch_id,full_name,role,businesses(name,tax_id,phone),branches(name,address,phone)')
+    .select('id,business_id,branch_id,full_name,role,active,businesses(name,tax_id,phone),branches(name,address,phone),employee_accounts(force_password_change)')
     .eq('id', auth.user.id).single()
   if (profileError) throw profileError
   const profile: StoreProfile = {
     id: row.id, businessId: row.business_id, branchId: row.branch_id,
-    fullName: row.full_name, role: row.role,
+    fullName: row.full_name, role: row.role, active: row.active,
+    forcePasswordChange: Boolean(((row.employee_accounts as any)?.[0]??(row.employee_accounts as any))?.force_password_change),
     businessName: (row.businesses as any)?.name ?? 'Mi minimarket',
     branchName: (row.branches as any)?.name ?? 'Sucursal Central',
     taxId: (row.businesses as any)?.tax_id ?? '', businessPhone:(row.businesses as any)?.phone??'',
@@ -172,11 +191,11 @@ export async function returnSale(saleId:string,reason:string,items:Array<{sale_i
 export async function loadTeam(profile:StoreProfile){
   if(!supabase)throw new Error('Supabase no está configurado')
   const [{data:members,error:me},{data:invites,error:ie}]=await Promise.all([
-    supabase.from('profiles').select('id,full_name,role,active,branch_id,branches(name)').eq('business_id',profile.businessId).order('full_name'),
+    supabase.from('profiles').select('id,full_name,role,active,branch_id,branches(name),employee_accounts(username,employee_email,phone,avatar_url,force_password_change,permission_template)').eq('business_id',profile.businessId).order('full_name'),
     supabase.from('team_invitations').select('id,email,role,accepted_at,created_at').eq('business_id',profile.businessId).order('created_at',{ascending:false})
   ])
   if(me)throw me;if(ie)throw ie
-  return {members:(members??[]).map((m:any)=>({id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??''})) as TeamMember[],invites:(invites??[]).map((i:TeamInvitationRow)=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
+  return {members:(members??[]).map((m:any)=>{const account:EmployeeAccountRow|undefined=Array.isArray(m.employee_accounts)?m.employee_accounts[0]:m.employee_accounts;return {id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??'',username:account?.username,employeeEmail:account?.employee_email,phone:account?.phone??'',avatarUrl:account?.avatar_url??'',forcePasswordChange:account?.force_password_change,permissionTemplate:account?.permission_template??''}}) as TeamMember[],invites:(invites??[]).map((i:TeamInvitationRow)=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
 }
 export async function inviteTeamMember(profile:StoreProfile,email:string,role:string){if(!supabase)throw new Error('Supabase no esta configurado');const {error}=await supabase.from('team_invitations').upsert({business_id:profile.businessId,branch_id:profile.branchId,email:email.toLowerCase().trim(),role,invited_by:profile.id,accepted_at:null},{onConflict:'business_id,email'});if(error)throw error;return sendInvitationEmail({kind:'team-member',email,fullName:''})}
 export async function updateTeamMember(memberId:string,changes:{role?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('profiles').update(changes).eq('id',memberId);if(error)throw error}
