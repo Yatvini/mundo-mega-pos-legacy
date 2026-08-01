@@ -45,7 +45,7 @@ type CashMovementRow = { id:string;kind:string;amount:number|string;description:
 type SalePaymentRow = { method:string;amount:number|string }
 type RefundRow = { method:string;amount:number }
 type TeamInvitationRow = { id:string;email:string;role:string;accepted_at:string|null;created_at:string }
-type EmployeeAccountRow = { username:string;employee_email:string;phone:string|null;avatar_url:string|null;force_password_change:boolean;permission_template:string|null }
+type EmployeeAccountRow = { user_id:string;username:string;employee_email:string;phone:string|null;avatar_url:string|null;force_password_change:boolean;permission_template:string|null }
 type BranchRow = { id:string;name:string;address:string|null;phone:string|null;active:boolean;created_at:string }
 type BranchIncomeStatementRow = { branch_id:string;branch_name:string;period_from:string;period_to:string;gross_sales:number|string;returns_total:number|string;cancellations_total:number|string;net_sales:number|string;cost_of_sales:number|string;gross_profit:number|string;operating_expenses:number|string;payroll_expenses:number|string;cash_negative_differences:number|string;cash_positive_differences:number|string;operating_profit:number|string;gross_margin:number|string;operating_margin:number|string;average_ticket:number|string;transactions:number|string;products_sold:number|string;uses_cost_fallback:boolean;notes:string[]|null }
 type CorporateCashMovementRow = { movement_id:string;business_id:string;branch_id:string;branch_name:string;cash_session_id:string;session_opened_at:string;session_closed_at:string|null;is_session_open:boolean;movement_created_at:string;created_by:string;created_by_name:string;kind:'income'|'expense';amount:number|string;description:string;status:'active'|'voided';editable:boolean;voidable:boolean;voided_at:string|null;void_reason:string|null;updated_at:string|null;correction_reason:string|null;last_audit_at:string|null }
@@ -93,13 +93,18 @@ export async function loadStore() {
   if (!auth.user) throw new Error('Sesión no encontrada')
   const { data: row, error: profileError } = await supabase
     .from('profiles')
-    .select('id,business_id,branch_id,full_name,role,active,businesses(name,tax_id,phone),branches(name,address,phone),employee_accounts(force_password_change)')
+    .select('id,business_id,branch_id,full_name,role,active,businesses(name,tax_id,phone),branches(name,address,phone)')
     .eq('id', auth.user.id).single()
   if (profileError) throw profileError
+  const { data: accountRow, error: accountError } = await supabase
+    .from('employee_accounts')
+    .select('user_id,username,employee_email,phone,avatar_url,force_password_change,permission_template')
+    .eq('user_id', auth.user.id).maybeSingle()
+  if (accountError) console.warn('No fue posible cargar datos de acceso del empleado', accountError)
   const profile: StoreProfile = {
     id: row.id, businessId: row.business_id, branchId: row.branch_id,
     fullName: row.full_name, role: row.role, active: row.active,
-    forcePasswordChange: Boolean(((row.employee_accounts as any)?.[0]??(row.employee_accounts as any))?.force_password_change),
+    forcePasswordChange: Boolean(accountRow?.force_password_change),
     businessName: (row.businesses as any)?.name ?? 'Mi minimarket',
     branchName: (row.branches as any)?.name ?? 'Sucursal Central',
     taxId: (row.businesses as any)?.tax_id ?? '', businessPhone:(row.businesses as any)?.phone??'',
@@ -191,11 +196,14 @@ export async function returnSale(saleId:string,reason:string,items:Array<{sale_i
 export async function loadTeam(profile:StoreProfile){
   if(!supabase)throw new Error('Supabase no está configurado')
   const [{data:members,error:me},{data:invites,error:ie}]=await Promise.all([
-    supabase.from('profiles').select('id,full_name,role,active,branch_id,branches(name),employee_accounts(username,employee_email,phone,avatar_url,force_password_change,permission_template)').eq('business_id',profile.businessId).order('full_name'),
+    supabase.from('profiles').select('id,full_name,role,active,branch_id,branches(name)').eq('business_id',profile.businessId).order('full_name'),
     supabase.from('team_invitations').select('id,email,role,accepted_at,created_at').eq('business_id',profile.businessId).order('created_at',{ascending:false})
   ])
   if(me)throw me;if(ie)throw ie
-  return {members:(members??[]).map((m:any)=>{const account:EmployeeAccountRow|undefined=Array.isArray(m.employee_accounts)?m.employee_accounts[0]:m.employee_accounts;return {id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??'',username:account?.username,employeeEmail:account?.employee_email,phone:account?.phone??'',avatarUrl:account?.avatar_url??'',forcePasswordChange:account?.force_password_change,permissionTemplate:account?.permission_template??''}}) as TeamMember[],invites:(invites??[]).map((i:TeamInvitationRow)=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
+  const {data:accounts,error:accountsError}=await supabase.from('employee_accounts').select('user_id,username,employee_email,phone,avatar_url,force_password_change,permission_template').eq('business_id',profile.businessId)
+  if(accountsError)console.warn('No fue posible cargar cuentas de empleados',accountsError)
+  const accountByUserId=new Map((accountsError?[]:(accounts??[])).map((account:EmployeeAccountRow)=>[account.user_id,account]))
+  return {members:(members??[]).map((m:any)=>{const account=accountByUserId.get(m.id);return {id:m.id,fullName:m.full_name,role:m.role,active:m.active,branchId:m.branch_id,branchName:m.branches?.name??'',username:account?.username,employeeEmail:account?.employee_email,phone:account?.phone??'',avatarUrl:account?.avatar_url??'',forcePasswordChange:account?.force_password_change,permissionTemplate:account?.permission_template??''}}) as TeamMember[],invites:(invites??[]).map((i:TeamInvitationRow)=>({id:i.id,email:i.email,role:i.role,acceptedAt:i.accepted_at,createdAt:i.created_at})) as TeamInvitation[]}
 }
 export async function inviteTeamMember(profile:StoreProfile,email:string,role:string){if(!supabase)throw new Error('Supabase no esta configurado');const {error}=await supabase.from('team_invitations').upsert({business_id:profile.businessId,branch_id:profile.branchId,email:email.toLowerCase().trim(),role,invited_by:profile.id,accepted_at:null},{onConflict:'business_id,email'});if(error)throw error;return sendInvitationEmail({kind:'team-member',email,fullName:''})}
 export async function updateTeamMember(memberId:string,changes:{role?:string;active?:boolean}){if(!supabase)throw new Error('Supabase no está configurado');const {error}=await supabase.from('profiles').update(changes).eq('id',memberId);if(error)throw error}
