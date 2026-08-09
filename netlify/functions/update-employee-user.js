@@ -9,7 +9,6 @@ const headers = {
 }
 
 const roles = new Set(['admin', 'supervisor', 'cashier', 'warehouse'])
-const emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
 
 function json(statusCode, body) {
   return { statusCode, headers, body: JSON.stringify(body) }
@@ -32,8 +31,20 @@ function cleanEmail(value) {
   return cleanText(value).toLowerCase()
 }
 
-function safeError(message = 'No fue posible actualizar el usuario.') {
-  return json(400, { error: message })
+function friendlyRpcError(error) {
+  const message = cleanText(error?.message)
+  if (/motivo requerido/i.test(message)) return 'Motivo requerido para cambios sensibles.'
+  if (/ultimo administrador/i.test(message)) return 'No puedes inactivar el ultimo administrador activo.'
+  if (/inactivarte a ti mismo/i.test(message)) return 'No puedes inactivarte a ti mismo.'
+  if (/quitarte.*administrador/i.test(message)) return 'No puedes quitarte tu propio acceso de administrador.'
+  if (/propia sucursal/i.test(message)) return 'No puedes cambiar tu propia sucursal.'
+  if (/sucursal/i.test(message)) return 'Sucursal invalida.'
+  if (/rol/i.test(message)) return 'Rol invalido.'
+  if (/no autorizado|autorizado/i.test(message)) return 'No autorizado.'
+  if (/platform|plataforma/i.test(message)) return 'No se puede editar un administrador de plataforma desde esta pantalla.'
+  if (/correo/i.test(message)) return 'Correo del empleado invalido.'
+  if (/nombre|apellido/i.test(message)) return message
+  return 'No fue posible actualizar el usuario.'
 }
 
 export const handler = async (event) => {
@@ -52,126 +63,49 @@ export const handler = async (event) => {
 
   const userId = cleanText(body.userId || body.id)
   const role = cleanText(body.role)
-  const branchId = cleanText(body.branchId)
   const active = body.active
-  const fullName = cleanText(body.fullName)
-  const firstName = cleanText(body.firstName)
-  const lastName = cleanText(body.lastName)
-  const employeeEmail = cleanEmail(body.employeeEmail)
-  const phone = cleanText(body.phone)
-  const avatarUrl = cleanText(body.avatarUrl)
-  const forcePasswordChange = Boolean(body.forcePasswordChange)
-  const permissionTemplate = cleanText(body.permissionTemplate)
 
-  if (!userId) return safeError('Usuario no encontrado.')
-  if (!roles.has(role)) return safeError('Rol no permitido.')
-  if (typeof active !== 'boolean') return safeError('Estado invalido.')
+  if (!userId) return json(400, { error: 'Usuario no encontrado.' })
+  if (!roles.has(role)) return json(400, { error: 'Rol invalido.' })
+  if (typeof active !== 'boolean') return json(400, { error: 'Estado invalido.' })
 
   const admin = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
   })
 
   const { data: userData, error: userError } = await admin.auth.getUser(token)
   if (userError || !userData?.user) return json(401, { error: 'Sesion invalida.' })
 
-  const { data: editor, error: editorError } = await admin
-    .from('profiles')
-    .select('id,business_id,role,active')
-    .eq('id', userData.user.id)
-    .maybeSingle()
+  const { data, error } = await admin.rpc('update_employee_user_v2', {
+    p_target_user_id: userId,
+    p_full_name: cleanText(body.fullName) || null,
+    p_first_name: cleanText(body.firstName) || null,
+    p_last_name: cleanText(body.lastName) || null,
+    p_employee_email: cleanEmail(body.employeeEmail) || null,
+    p_phone: cleanText(body.phone) || null,
+    p_avatar_url: cleanText(body.avatarUrl) || null,
+    p_role: role,
+    p_branch_id: cleanText(body.branchId) || null,
+    p_active: active,
+    p_force_password_change: Boolean(body.forcePasswordChange),
+    p_permission_template: cleanText(body.permissionTemplate) || null,
+    p_reason: cleanText(body.reason) || null,
+  })
 
-  if (editorError || !editor?.active || editor.role !== 'admin' || !editor.business_id) {
-    return json(403, { error: 'Solo un administrador activo puede editar usuarios.' })
-  }
+  if (error) return json(400, { error: friendlyRpcError(error) })
 
-  const { data: target, error: targetError } = await admin
-    .from('profiles')
-    .select('id,business_id,branch_id,full_name,role,active')
-    .eq('id', userId)
-    .maybeSingle()
-
-  if (targetError || !target) return safeError('Usuario no encontrado.')
-  if (target.business_id !== editor.business_id) return json(403, { error: 'Usuario no autorizado.' })
-
-  const { data: platformAdmin } = await admin
-    .from('platform_admins')
-    .select('user_id')
-    .eq('user_id', userId)
-    .eq('active', true)
-    .maybeSingle()
-
-  if (platformAdmin) return json(403, { error: 'No se puede editar un administrador de plataforma desde esta pantalla.' })
-
-  const targetBranchId = branchId || target.branch_id
-  if (targetBranchId) {
-    const { data: branch, error: branchError } = await admin
-      .from('branches')
-      .select('id')
-      .eq('id', targetBranchId)
-      .eq('business_id', editor.business_id)
-      .eq('active', true)
-      .maybeSingle()
-
-    if (branchError || !branch) return safeError('La sucursal asignada no pertenece a la empresa.')
-  }
-
-  const { data: account, error: accountError } = await admin
-    .from('employee_accounts')
-    .select('user_id,business_id,username,auth_email')
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (accountError) return safeError()
-  if (account && account.business_id !== editor.business_id) return json(403, { error: 'Cuenta no autorizada.' })
-
-  const hasDirectAccount = Boolean(account)
-  const nextFullName = hasDirectAccount ? `${firstName} ${lastName}`.trim() : fullName
-
-  if (!nextFullName) return safeError('El nombre es obligatorio.')
-  if (hasDirectAccount) {
-    if (!firstName) return safeError('El nombre es obligatorio.')
-    if (!lastName) return safeError('El apellido es obligatorio.')
-    if (!emailPattern.test(employeeEmail)) return safeError('Correo del empleado invalido.')
-  }
-
-  const { error: profileUpdateError } = await admin
-    .from('profiles')
-    .update({
-      full_name: nextFullName,
-      role,
-      branch_id: targetBranchId || null,
-      active,
-    })
-    .eq('id', userId)
-    .eq('business_id', editor.business_id)
-
-  if (profileUpdateError) return safeError()
-
-  if (hasDirectAccount) {
-    const { error: accountUpdateError } = await admin
-      .from('employee_accounts')
-      .update({
-        first_name: firstName,
-        last_name: lastName,
-        employee_email: employeeEmail,
-        phone: phone || null,
-        avatar_url: avatarUrl || null,
-        force_password_change: forcePasswordChange,
-        permission_template: permissionTemplate || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId)
-      .eq('business_id', editor.business_id)
-
-    if (accountUpdateError) return safeError()
-  }
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) return json(200, { ok: true, changed_fields: [] })
 
   return json(200, {
     ok: true,
-    user_id: userId,
-    full_name: nextFullName,
-    role,
-    branch_id: targetBranchId || null,
-    active,
+    user_id: row.user_id,
+    full_name: row.full_name,
+    role: row.role,
+    branch_id: row.branch_id,
+    active: row.active,
+    has_employee_account: row.has_employee_account,
+    changed_fields: row.changed_fields || [],
   })
 }
