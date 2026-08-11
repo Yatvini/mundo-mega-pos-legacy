@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+﻿import { randomBytes } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 
 const headers = {
@@ -113,7 +113,8 @@ export const handler = async (event) => {
       const { data, error } = await client.rpc('attendance_qr_v2_create_token', { p_person_id: personId, p_token: token })
       if (error) return safeError('No fue posible generar el QR.')
       const row = Array.isArray(data) ? data[0] : data
-      return json(200, { ok: true, tokenId: row?.token_id || null, token, link: publicLink(token) })
+      const link = publicLink(token)
+      return json(200, { ok: true, tokenId: row?.token_id || null, token, link, publicUrl: link })
     }
 
     if (action === 'revoke-token') {
