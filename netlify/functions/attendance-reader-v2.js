@@ -43,6 +43,15 @@ function safeError(message = 'No fue posible procesar el lector QR.') {
   return json(400, { error: message })
 }
 
+function safeRpcMessage(error, fallback = 'No fue posible completar la operacion.') {
+  const message = cleanText(error?.message)
+  if (!message) return fallback
+  if (/service[_\s-]?role|supabase_service_role_key|database_password|jwt_secret|token_hash|stack|password|secret/i.test(message)) {
+    return fallback
+  }
+  return message.slice(0, 220)
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' }
   if (event.httpMethod !== 'POST') return json(405, { error: 'Metodo no permitido.' })
@@ -58,7 +67,10 @@ export const handler = async (event) => {
   if (!publicActions.has(action) && !adminActions.has(action)) return json(400, { error: 'Accion no permitida.' })
 
   const bearerToken = String(event.headers.authorization || event.headers.Authorization || '').replace(/^Bearer\s+/i, '')
-  const client = createClient(supabaseUrl, serviceKey, {
+  const authClient = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const rpcClient = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: bearerToken ? { headers: { Authorization: `Bearer ${bearerToken}` } } : undefined,
   })
@@ -67,7 +79,7 @@ export const handler = async (event) => {
     if (action === 'resolve-reader') {
       const readerToken = cleanText(body.readerToken)
       if (readerToken.length < 24) return safeError('Lector no valido.')
-      const { data, error } = await client.rpc('attendance_reader_v2_resolve', { p_reader_token: readerToken })
+      const { data, error } = await rpcClient.rpc('attendance_reader_v2_resolve', { p_reader_token: readerToken })
       if (error) return safeError('Lector no valido o inactivo.')
       return json(200, data)
     }
@@ -77,7 +89,7 @@ export const handler = async (event) => {
       const employeeToken = cleanText(body.employeeToken)
       if (readerToken.length < 24) return safeError('Lector no valido.')
       if (employeeToken.length < 24) return safeError('QR de empleado no valido.')
-      const { data, error } = await client.rpc('attendance_reader_v2_validate_employee_token', {
+      const { data, error } = await rpcClient.rpc('attendance_reader_v2_validate_employee_token', {
         p_reader_token: readerToken,
         p_employee_token: employeeToken,
       })
@@ -92,7 +104,7 @@ export const handler = async (event) => {
       if (readerToken.length < 24) return safeError('Lector no valido.')
       if (employeeToken.length < 24) return safeError('QR de empleado no valido.')
       if (!attendanceActions.has(eventType)) return safeError('Accion no permitida.')
-      const { data, error } = await client.rpc('attendance_reader_v2_record', {
+      const { data, error } = await rpcClient.rpc('attendance_reader_v2_record', {
         p_reader_token: readerToken,
         p_employee_token: employeeToken,
         p_action: eventType,
@@ -101,17 +113,24 @@ export const handler = async (event) => {
       return json(200, data)
     }
 
-    if (!bearerToken) return json(401, { error: 'Sesion no encontrada.' })
+    if (!bearerToken) {
+      return json(401, { error: action === 'create-token' ? 'No fue posible generar el lector: sesion no encontrada.' : 'Sesion no encontrada.' })
+    }
+
+    const { data: authData, error: authError } = await authClient.auth.getUser(bearerToken)
+    if (authError || !authData?.user) {
+      return json(401, { error: action === 'create-token' ? 'No fue posible generar el lector: sesion invalida.' : 'Sesion invalida.' })
+    }
 
     if (action === 'create-token') {
       const businessId = cleanText(body.businessId)
-      if (!businessId) return safeError('Empresa no encontrada.')
+      if (!businessId) return safeError('No fue posible generar el lector: empresa no encontrada.')
       const readerToken = randomToken()
-      const { data, error } = await client.rpc('attendance_reader_v2_create_token', {
+      const { data, error } = await rpcClient.rpc('attendance_reader_v2_create_token', {
         p_business_id: businessId,
         p_token: readerToken,
       })
-      if (error) return safeError('No fue posible generar el lector.')
+      if (error) return safeError(`No fue posible generar el lector: ${safeRpcMessage(error, 'No fue posible validar la configuracion de la empresa.')}`)
       const row = Array.isArray(data) ? data[0] : data
       const link = publicReaderLink(readerToken)
       return json(200, {
@@ -130,7 +149,7 @@ export const handler = async (event) => {
     if (action === 'revoke-token') {
       const readerTokenId = cleanText(body.readerTokenId)
       if (!readerTokenId) return safeError('Lector no encontrado.')
-      const { error } = await client.rpc('attendance_reader_v2_revoke_token', { p_reader_token_id: readerTokenId })
+      const { error } = await rpcClient.rpc('attendance_reader_v2_revoke_token', { p_reader_token_id: readerTokenId })
       if (error) return safeError('No fue posible revocar el lector.')
       return json(200, { ok: true })
     }
