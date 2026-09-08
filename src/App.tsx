@@ -68,7 +68,7 @@ function AuthenticatedApp(){
     {mobile&&<div className="backdrop" onClick={()=>setMobile(false)}/>}
     <main><Topbar title={page} openMenu={()=>setMobile(true)}/><div className="page-content">
       {storeError&&<div className="system-alert"><AlertTriangle/>{storeError}</div>}{page==='Resumen'&&<Dashboard go={setPage} profile={profile} catalog={catalog}/>} {page==='Centro de control'&&<ControlHub profile={profile} refreshStore={refresh}/>} {corporateView(page)&&<ControlHub profile={profile} refreshStore={refresh} view={corporateView(page)}/>} {page==='Punto de venta'&&<POS catalog={catalog} profile={profile} refresh={refresh}/>} {page==='Productos'&&<Products catalog={catalog} profile={profile} refresh={refresh}/>}
-      {page==='Compras'&&<Purchases profile={profile} catalog={catalog} refreshProducts={refresh}/>} {page==='Clientes'&&<Customers profile={profile}/>} {page==='Caja'&&<Cash profile={profile}/>} {page==='Estado de resultados'&&<IncomeStatementPage profile={profile}/>} {page==='Reportes'&&<Reports profile={profile}/>} {(page as string)==='Asistencia'&&profile&&<ControlHub profile={profile} refreshStore={refresh} view="attendance"/>} {page==='Configuración'&&<SettingsPage profile={profile} refreshStore={refresh}/>}
+      {page==='Compras'&&<Purchases profile={profile} catalog={catalog} refreshProducts={refresh}/>} {page==='Clientes'&&<Customers profile={profile}/>} {page==='Caja'&&<Cash profile={profile}/>} {page==='Estado de resultados'&&<IncomeStatementPage profile={profile}/>} {page==='Reportes'&&<Reports profile={profile}/>} {page==='Configuración'&&<SettingsPage profile={profile} refreshStore={refresh}/>}
     </div></main>
   </div>
 }
