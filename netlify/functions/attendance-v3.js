@@ -10,7 +10,7 @@ const headers = {
 }
 
 const publicActions = new Set(['validate-employee', 'record-movement'])
-const adminActions = new Set(['list-movements', 'create-movement', 'update-movement', 'delete-movement', 'delete-person-qr', 'initialize-defaults', 'create-reader-v3', 'report'])
+const adminActions = new Set(['list-movements', 'create-movement', 'update-movement', 'delete-movement', 'delete-person-qr', 'force-delete-movement', 'force-delete-person-qr', 'initialize-defaults', 'create-reader-v3', 'report'])
 
 function json(statusCode, body) {
   return { statusCode, headers, body: JSON.stringify(body) }
@@ -163,6 +163,40 @@ export const handler = async (event) => {
         deleted: Boolean(row?.deleted),
         reason: row?.reason || '',
         personId: row?.person_id || personId,
+      })
+    }
+
+    if (action === 'force-delete-movement') {
+      const movementId = cleanText(body.movementId)
+      if (!movementId) return safeError('Movimiento no encontrado.')
+      const { data, error } = await client.rpc('attendance_v3_admin_force_delete_movement', {
+        p_movement_id: movementId,
+      })
+      if (error) return safeError(safeRpcMessage(error, 'No fue posible eliminar permanentemente el movimiento.'))
+      const row = Array.isArray(data) ? data[0] : data
+      return json(200, {
+        ok: true,
+        deleted: Boolean(row?.deleted),
+        reason: row?.reason || '',
+        movementId: row?.movement_id || movementId,
+        metadata: row?.metadata || {},
+      })
+    }
+
+    if (action === 'force-delete-person-qr') {
+      const personId = cleanText(body.personId)
+      if (!personId) return safeError('Persona QR no encontrada.')
+      const { data, error } = await client.rpc('attendance_v3_admin_force_delete_person_qr', {
+        p_person_id: personId,
+      })
+      if (error) return safeError(safeRpcMessage(error, 'No fue posible eliminar permanentemente la persona QR.'))
+      const row = Array.isArray(data) ? data[0] : data
+      return json(200, {
+        ok: true,
+        deleted: Boolean(row?.deleted),
+        reason: row?.reason || '',
+        personId: row?.person_id || personId,
+        metadata: row?.metadata || {},
       })
     }
 
