@@ -24,6 +24,7 @@ export type TeamMember = { id:string; fullName:string; role:'admin'|'supervisor'
 export type TeamInvitation = { id:string; email:string; role:string; acceptedAt:string|null; createdAt:string }
 export type CreateEmployeeUserInput = { firstName:string;lastName:string;employeeEmail:string;phone:string;avatarUrl:string;username:string;password:string;branchId:string;role:'admin'|'supervisor'|'cashier'|'warehouse';active:boolean;forcePasswordChange:boolean;darkMode:boolean;permissionTemplate?:string;permissions?:Record<string,boolean> }
 export type UpdateEmployeeUserInput = { userId:string;fullName?:string;firstName?:string;lastName?:string;employeeEmail?:string;phone?:string;avatarUrl?:string;role:'admin'|'supervisor'|'cashier'|'warehouse';branchId:string;active:boolean;forcePasswordChange?:boolean;permissionTemplate?:string;reason?:string }
+export type DeleteEmployeeUserResult = { ok?:boolean; deleted:boolean; reason:string; target_user_id?:string; block_reasons?:string[]; metadata?:Record<string,unknown> }
 export type Branch = { id:string; name:string; address:string; phone:string; active:boolean; createdAt:string }
 export type BranchReport = { branchId:string;branchName:string;active:boolean;grossSales:number;refunds:number;netSales:number;transactions:number;averageTicket:number;costOfSales:number;grossProfit:number;margin:number;inventoryValue:number;lowStock:number;outOfStock:number }
 export type BranchIncomeStatement = { branchId:string;branchName:string;periodFrom:string;periodTo:string;grossSales:number;returnsTotal:number;cancellationsTotal:number;netSales:number;costOfSales:number;grossProfit:number;operatingExpenses:number;payrollExpenses:number;cashNegativeDifferences:number;cashPositiveDifferences:number;operatingProfit:number;grossMargin:number;operatingMargin:number;averageTicket:number;transactions:number;productsSold:number;usesCostFallback:boolean;notes:string[] }
@@ -92,6 +93,7 @@ async function postServerFunction<T>(path:string,body:unknown,auth=false):Promis
 
 export async function createEmployeeUser(input:CreateEmployeeUserInput){return postServerFunction<{ok:boolean;user_id:string;username:string;full_name:string;role:string;active:boolean}>('/api/create-employee-user',input,true)}
 export async function updateEmployeeUser(input:UpdateEmployeeUserInput){return postServerFunction<{ok:boolean;user_id:string;full_name:string;role:string;branch_id:string|null;active:boolean}>('/api/update-employee-user',input,true)}
+export async function deleteEmployeeUserPermanently(targetUserId:string,reason:string){return postServerFunction<DeleteEmployeeUserResult>('/api/delete-employee-user',{targetUserId,reason},true)}
 export async function resolveLoginUsername(username:string){const result=await postServerFunction<{ok:boolean;auth_email:string}>('/api/resolve-login-username',{username});return result.auth_email}
 export async function completeForcePasswordChange(){return postServerFunction<{ok:boolean}>('/api/complete-force-password-change',{},true)}
 export async function attendanceQrV2Request<T>(body:unknown,auth=false){return postServerFunction<T>('/api/attendance-qr-v2',body,auth)}
